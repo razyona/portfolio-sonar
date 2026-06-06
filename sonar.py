@@ -1,14 +1,17 @@
 """
-Portfolio Sonar — AMPX & SIVE.ST  |  v2 — 9 sources
+Portfolio Sonar — AMPX & SIVE.ST  |  v3 — 11 sources
 ──────────────────────────────────────────────────────
 Sources per run (every 5 min):
-  📰 Google News (EN + SV)     SEC EDGAR 8-K
-  📊 Yahoo Finance news         Finnhub news + earnings
-  💬 StockTwits                 Reddit (r/stocks, r/investing)
-  📣 PR Newswire + Business Wire (RSS keyword filter)
+  📰 Google News (EN + SV + institutional queries)
+  🏛  SEC EDGAR 8-K + 13D/13G (insider/institutional)
+  📊 Yahoo Finance              Finnhub news + earnings
+  🏦  Finnhub insider transactions (SEC Form 4)
+  💬 StockTwits                 Reddit
+  📣 PR Newswire + Business Wire
   🏢 Cision Sweden (SIVE.ST)
   💹 Price alert ≥3%           Volume spike ≥2× avg
 
+Institutional detection: JPMorgan, Goldman, BlackRock etc. → auto URGENT
 Groq classifier → 🔴 URGENT pushed immediately | 🟡 WATCH hourly digest
 """
 
@@ -37,6 +40,19 @@ VOLUME_SPIKE_X   = 2.0   # × avg 20-day volume triggers URGENT
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PortfolioSonar/2.0)"}
 
+# ── Institutional investor names → auto-URGENT ────────────────────────────────
+INSTITUTIONAL_NAMES = [
+    "jpmorgan", "jp morgan", "goldman sachs", "blackrock", "vanguard",
+    "morgan stanley", "fidelity", "citadel", "bridgewater", "renaissance",
+    "two sigma", "point72", "millennium", "de shaw", "aqr", "tudor",
+    "carlyle", "kkr", "apollo", "warburg", "sequoia", "andreessen",
+    "state street", "norges bank", "swissnational", "pension fund",
+    "flaggning", "flagging notification", "major shareholder",
+    "stake acquisition", "acquired stake", "13d", "13g", "form 4",
+    "insider buying", "insider purchase", "storägare", "kapitalandel",
+    "institutional", "hedge fund", "asset management",
+]
+
 # ── Ticker config ─────────────────────────────────────────────────────────────
 TICKERS = {
     "AMPX": {
@@ -50,6 +66,7 @@ TICKERS = {
         "cision_slug": None,
         "reddit_q":    "AMPX OR Amprius Technologies",
         "sec":         True,
+        "is_swedish":  False,
         "prnw_kw":     ["amprius"],
         "bw_kw":       ["amprius"],
     },
@@ -64,6 +81,7 @@ TICKERS = {
         "cision_slug": "sivers-semiconductors",
         "reddit_q":    "Sivers Semiconductors SIVE",
         "sec":         False,
+        "is_swedish":  True,
         "prnw_kw":     ["sivers"],
         "bw_kw":       ["sivers"],
     },
@@ -199,6 +217,77 @@ def fetch_stocktwits(symbol: str) -> list:
     except Exception as e:
         print(f"    [StockTwits] {symbol}: {e}")
         return []
+
+# ── Source: Finnhub insider transactions (SEC Form 4) ────────────────────────
+def fetch_finnhub_insider(fh_sym: str) -> list:
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/stock/insider-transactions",
+            params={"symbol": fh_sym, "token": FH_KEY},
+            timeout=10
+        )
+        out = []
+        for tx in r.json().get("data", [])[:15]:
+            name  = tx.get("name", "Unknown")
+            chg   = tx.get("change", 0)
+            price = tx.get("transactionPrice", 0)
+            code  = tx.get("transactionCode", "")
+            date  = tx.get("transactionDate", "")
+            shares = tx.get("share", 0)
+            action = "BUY" if chg > 0 else "SELL"
+            arrow  = "📈" if chg > 0 else "📉"
+            title  = f"{arrow} Insider {action}: {name} — {chg:+,} shares @ ${price:.2f} ({date})"
+            uid    = tx.get("id", f"{name}{date}{chg}")
+            out.append(make_item(
+                str(uid), title, "SEC Form 4 (Insider)",
+                f"https://finance.yahoo.com/quote/{fh_sym}/insider-transactions",
+                date, f"Total shares held: {shares:,}", "Regulatory"
+            ))
+        return out
+    except Exception as e:
+        print(f"    [Insider] {fh_sym}: {e}")
+        return []
+
+# ── Source: SEC 13D/13G (institutional investors) ────────────────────────────
+def fetch_sec_institutional(ticker: str, company_name: str) -> list:
+    try:
+        headers_edgar = {"User-Agent": "PortfolioSonar contact@portfolio.research"}
+        url = (f"https://www.sec.gov/cgi-bin/browse-edgar"
+               f"?action=getcompany&CIK={ticker}&type=SC+13"
+               f"&dateb=&owner=include&count=5&output=atom")
+        feed = feedparser.parse(url, request_headers=headers_edgar)
+        out = []
+        for e in feed.entries[:5]:
+            uid = e.get("id", e.get("link", ""))
+            out.append(make_item(
+                uid, e.get("title", ""), "SEC 13D/13G (Institutional)",
+                e.get("link", ""), e.get("published", ""),
+                e.get("summary", ""), "Regulatory"
+            ))
+        return out
+    except Exception as e:
+        print(f"    [SEC 13D/13G] {ticker}: {e}")
+        return []
+
+# ── Source: Dedicated institutional Google News ───────────────────────────────
+def fetch_institutional_news(ticker: str, name: str, is_swedish: bool = False) -> list:
+    queries = [
+        f'"{name}" JPMorgan OR "Goldman Sachs" OR BlackRock OR Vanguard OR stake',
+        f'"{ticker}" institutional investor OR "major shareholder" OR "hedge fund"',
+    ]
+    if is_swedish:
+        queries.append(f'"{name}" flaggning OR storägare OR kapitalandel')
+
+    out = []
+    for q in queries:
+        try:
+            lang   = "sv" if is_swedish and "flagg" in q else "en-US"
+            region = "SE" if is_swedish and "flagg" in q else "US"
+            items  = fetch_google(q, lang=lang, region=region)
+            out.extend(items)
+        except Exception as e:
+            print(f"    [Institutional news] {e}")
+    return out
 
 # ── Source: Finnhub company news ──────────────────────────────────────────────
 def fetch_finnhub(fh_sym: str) -> list:
@@ -399,13 +488,28 @@ def groq_post(model: str, prompt: str, max_tokens: int) -> str:
     )
     return r.json()["choices"][0]["message"]["content"].strip()
 
+def is_institutional_event(item: dict) -> bool:
+    """Fast local check — no API call needed."""
+    blob = (item.get("title","") + " " + item.get("summary","")).lower()
+    return any(inst in blob for inst in INSTITUTIONAL_NAMES)
+
 def classify(item: dict, sym: str, name: str) -> dict:
+    # ── Fast local override: institutional entry = always URGENT ──────────────
+    if is_institutional_event(item):
+        inst_matches = [i for i in INSTITUTIONAL_NAMES if i in
+                        (item.get("title","") + item.get("summary","")).lower()]
+        return {
+            "urgency": "URGENT",
+            "reason":  f"Institutional activity detected: {', '.join(inst_matches[:3])}"
+        }
+
+    # ── Groq classification for everything else ───────────────────────────────
     prompt = (
         f"Financial news classifier for {sym} ({name}).\n"
         f"Title: {item['title']}\nSource: {item['source']} | Layer: {item['layer']}\n"
         f"Summary: {item.get('summary','')[:120]}\n\n"
         f"Reply ONLY with JSON: {{\"urgency\":\"URGENT|WATCH|FYI|IGNORE\",\"reason\":\"one sentence\"}}\n\n"
-        f"URGENT=SEC/earnings/M&A/bankruptcy/major partnership/price spike\n"
+        f"URGENT=SEC/earnings/M&A/bankruptcy/major partnership/price spike/institutional investor entry\n"
         f"WATCH=analyst note, product news, exec change, relevant sector\n"
         f"FYI=social chatter, vague mention  IGNORE=unrelated/spam"
     )
@@ -484,10 +588,13 @@ def main():
         raw += fetch_yahoo(sym, cfg["yahoo"])
         if cfg.get("sec"):
             raw += fetch_sec(sym)
+            raw += fetch_sec_institutional(sym, cfg["name"])
+            raw += fetch_finnhub_insider(cfg["finnhub"])
         if cfg.get("stocktwits"):
             raw += fetch_stocktwits(cfg["stocktwits"])
         raw += fetch_finnhub(cfg["finnhub"])
         raw += fetch_reddit(cfg["reddit_q"])
+        raw += fetch_institutional_news(sym, cfg["name"], is_swedish=cfg.get("is_swedish", False))
         if cfg.get("google_q_sv"):
             raw += fetch_google(cfg["google_q_sv"], lang="sv", region="SE")
         if cfg.get("cision_slug"):
