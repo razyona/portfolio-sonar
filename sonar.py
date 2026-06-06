@@ -437,11 +437,11 @@ def fetch_earnings_alerts() -> list:
                 iid = mid(f"earnings_{sym}_{date}")
                 alerts.append({
                     "id":           iid,
-                    "title":        f"📅 Earnings due {date} — EPS est: {eps_est}",
+                    "title":        f"📅 דוח רווחים {date} — EPS צפוי: {eps_est}",
                     "source":       "Finnhub Earnings Calendar",
                     "link":         f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
                     "published":    datetime.now(timezone.utc).isoformat(),
-                    "summary":      f"{sym} earnings report scheduled",
+                    "summary":      f"דוח רווחים מתוכנן ל-{sym}",
                     "layer":        "Regulatory",
                     "ticker":       sym,
                     "force_urgent": True,
@@ -573,22 +573,23 @@ def is_macro_event(item: dict) -> bool:
 
 def analyze_macro(item: dict) -> str:
     prompt = (
-        "Buy-side analyst. Write a concise Telegram alert for this US macro release. Max 380 chars, plain text.\n"
-        f"Event: {item['title']}\nSource: {item['source']}\nDetails: {item.get('summary','')}\n\n"
-        "Format:\n"
-        "Data: [one sentence on what was released]\n"
-        "Impact: Bullish/Bearish/Neutral for stocks — [why in 1 line]\n"
-        "Watch: [key thing to monitor next]"
+        "אנליסט buy-side. כתוב התראת מאקרו קצרה בעברית לטלגרם. מקסימום 380 תווים, טקסט רגיל.\n"
+        f"אירוע: {item['title']}\nמקור: {item['source']}\nפרטים: {item.get('summary','')}\n\n"
+        "פורמט:\n"
+        "נתון: [משפט אחד על מה פורסם]\n"
+        "השפעה: שורי/דובי/ניטרלי למניות — [למה, שורה אחת]\n"
+        "לעקוב: [הדבר הבא לנטר]\n\n"
+        "כתוב הכל בעברית. מונחים כמו CPI, GDP, Fed, FOMC, PCE, NFP — השאר באנגלית."
     )
     try:
         return groq_post("llama-3.3-70b-versatile", prompt, 220)
     except Exception as e:
-        return f"Analysis unavailable: {e}"
+        return f"ניתוח לא זמין: {e}"
 
 def fmt_macro_urgent(item: dict) -> str:
     now = datetime.now(IL).strftime("%d/%m %H:%M")
     return (
-        f"📊 <b>MACRO ALERT — US Economy</b>  {now} IL\n"
+        f"📊 <b>התראת מאקרו — כלכלת ארה\"ב</b>  {now} ישראל\n"
         f"<b>{item['title'][:180]}</b>\n"
         f"<i>{item['source']}</i>\n\n"
         f"{item.get('analysis','')}\n\n"
@@ -612,13 +613,14 @@ def check_price() -> list:
                 pct  = ((price - prev) / prev) * 100
                 if abs(pct) >= PRICE_ALERT_PCT:
                     arrow = "📈" if pct > 0 else "📉"
+                    direction = "עלה" if pct > 0 else "ירד"
                     alerts.append({
                         "id":           mid(f"price_{sym}_{datetime.now().strftime('%Y%m%d%H')}"),
-                        "title":        f"{arrow} {sym} moved {pct:+.1f}% → ${price:.3f}",
-                        "source":       "Price Alert",
+                        "title":        f"{arrow} {sym} {direction} {abs(pct):.1f}% → ${price:.3f}",
+                        "source":       "התראת מחיר",
                         "link":         f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
                         "published":    datetime.now(timezone.utc).isoformat(),
-                        "summary":      f"From ${prev:.3f} to ${price:.3f}",
+                        "summary":      f"מ-${prev:.3f} ל-${price:.3f}",
                         "layer":        "Price",
                         "ticker":       sym,
                         "force_urgent": True,
@@ -642,11 +644,11 @@ def check_volume() -> list:
                 mult = cur_vol / avg_vol
                 alerts.append({
                     "id":           mid(f"vol_{sym}_{datetime.now().strftime('%Y%m%d%H')}"),
-                    "title":        f"🔊 {sym} volume spike {mult:.1f}× avg ({int(cur_vol/1e6):.1f}M vs {int(avg_vol/1e6):.1f}M avg)",
-                    "source":       "Volume Alert",
+                    "title":        f"🔊 {sym} — ספייק בנפח {mult:.1f}× ממוצע ({int(cur_vol/1e6):.1f}M לעומת ממוצע {int(avg_vol/1e6):.1f}M)",
+                    "source":       "התראת נפח",
                     "link":         f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
                     "published":    datetime.now(timezone.utc).isoformat(),
-                    "summary":      f"Current: {int(cur_vol):,} | 20d avg: {int(avg_vol):,}",
+                    "summary":      f"נפח נוכחי: {int(cur_vol):,} | ממוצע 20 יום: {int(avg_vol):,}",
                     "layer":        "Price",
                     "ticker":       sym,
                     "force_urgent": True,
@@ -679,7 +681,7 @@ def classify(item: dict, sym: str, name: str) -> dict:
                         (item.get("title","") + item.get("summary","")).lower()]
         return {
             "urgency": "URGENT",
-            "reason":  f"Institutional activity detected: {', '.join(inst_matches[:3])}"
+            "reason":  f"זוהתה פעילות מוסדית: {', '.join(inst_matches[:3])}"
         }
 
     # ── Groq classification for everything else ───────────────────────────────
@@ -687,10 +689,11 @@ def classify(item: dict, sym: str, name: str) -> dict:
         f"Financial news classifier for {sym} ({name}).\n"
         f"Title: {item['title']}\nSource: {item['source']} | Layer: {item['layer']}\n"
         f"Summary: {item.get('summary','')[:120]}\n\n"
-        f"Reply ONLY with JSON: {{\"urgency\":\"URGENT|WATCH|FYI|IGNORE\",\"reason\":\"one sentence\"}}\n\n"
+        f"Reply ONLY with JSON: {{\"urgency\":\"URGENT|WATCH|FYI|IGNORE\",\"reason\":\"משפט אחד בעברית\"}}\n\n"
         f"URGENT=SEC/earnings/M&A/bankruptcy/major partnership/price spike/institutional investor entry\n"
         f"WATCH=analyst note, product news, exec change, relevant sector\n"
-        f"FYI=social chatter, vague mention  IGNORE=unrelated/spam"
+        f"FYI=social chatter, vague mention  IGNORE=unrelated/spam\n"
+        f"The reason field must be written in Hebrew."
     )
     try:
         raw = groq_post("llama-3.1-8b-instant", prompt, 80)
@@ -699,18 +702,22 @@ def classify(item: dict, sym: str, name: str) -> dict:
             return json.loads(m.group())
     except Exception as e:
         print(f"    [classify] {e}")
-    return {"urgency": "WATCH", "reason": "classification unavailable"}
+    return {"urgency": "WATCH", "reason": "סיווג לא זמין"}
 
 def analyze(item: dict, sym: str, name: str) -> str:
     prompt = (
-        f"Buy-side analyst. Write Telegram analysis for {sym} ({name}). Max 350 chars, plain text.\n"
-        f"Title: {item['title']}\nSource: {item['source']}\nSummary: {item.get('summary','')}\n\n"
-        f"Format:\nWhat: [1 sentence]\nImpact: Bullish/Bearish/Neutral — [why]\nWatch: [key monitor point]"
+        f"אנליסט buy-side. כתוב ניתוח קצר בעברית לטלגרם עבור {sym} ({name}). מקסימום 350 תווים, טקסט רגיל.\n"
+        f"כותרת: {item['title']}\nמקור: {item['source']}\nתקציר: {item.get('summary','')}\n\n"
+        f"פורמט:\n"
+        f"מה קרה: [משפט אחד]\n"
+        f"השפעה: שורי/דובי/ניטרלי — [למה]\n"
+        f"לעקוב: [נקודת מעקב מרכזית]\n\n"
+        f"כתוב הכל בעברית. מונחים מקצועיים (CPI, EPS, SEC וכד') — השאר באנגלית."
     )
     try:
         return groq_post("llama-3.3-70b-versatile", prompt, 200)
     except Exception as e:
-        return f"Analysis error: {e}"
+        return f"שגיאת ניתוח: {e}"
 
 # ── Formatters ────────────────────────────────────────────────────────────────
 LAYER_ICON = {"Regulatory": "🏛", "Price": "💹", "News": "📰", "Social": "💬", "Macro": "📊"}
@@ -719,7 +726,7 @@ def fmt_urgent(item: dict, sym: str, analysis: str) -> str:
     now  = datetime.now(IL).strftime("%d/%m %H:%M")
     icon = LAYER_ICON.get(item.get("layer",""), "📡")
     return (
-        f"🔴 <b>URGENT — {sym}</b>  {now} IL\n"
+        f"🔴 <b>דחוף — {sym}</b>  {now} ישראל\n"
         f"{icon} <b>{item['title'][:140]}</b>\n"
         f"<i>{item['source']}</i>\n\n"
         f"{analysis}\n\n"
@@ -729,7 +736,7 @@ def fmt_urgent(item: dict, sym: str, analysis: str) -> str:
 def fmt_digest(items: list, now_str: str) -> str:
     if not items:
         return ""
-    lines = [f"🟡 <b>Watch Digest</b>  {now_str} IL\n"]
+    lines = [f"🟡 <b>תקציר שעתי</b>  {now_str} ישראל\n"]
     by_ticker: dict = {}
     for it in items:
         by_ticker.setdefault(it.get("ticker","?"), []).append(it)
@@ -742,7 +749,7 @@ def fmt_digest(items: list, now_str: str) -> str:
             if it.get("reason"):
                 lines.append(f"   <i>{it['reason']}</i>")
         lines.append("")
-    lines.append(f"<i>{len(items)} items since last digest</i>")
+    lines.append(f"<i>{len(items)} פריטים מהתקציר האחרון</i>")
     return "\n".join(lines)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
