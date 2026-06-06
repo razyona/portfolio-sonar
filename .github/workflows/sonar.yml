@@ -1,0 +1,43 @@
+name: Portfolio Sonar
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pull latest state
+        run: git pull --rebase origin main || true
+
+      - name: Run sonar
+        run: python sonar.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+
+      - name: Save state
+        run: |
+          git config user.name "Portfolio Sonar"
+          git config user.email "sonar@bot.local"
+          git add seen_ids.json digest_queue.json price_baseline.json last_digest.json 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "chore: update sonar state [skip ci]"
+          git push origin main || true
