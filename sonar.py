@@ -179,8 +179,11 @@ def fetch_stocktwits(symbol: str) -> list:
     try:
         r = requests.get(
             f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json",
-            headers=HEADERS, timeout=10
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "application/json"},
+            timeout=10
         )
+        if r.status_code != 200 or not r.text.strip():
+            return []
         messages = r.json().get("messages", [])
         out = []
         for m in messages[:20]:
@@ -227,9 +230,9 @@ def fetch_reddit(query: str) -> list:
     for sub in ["stocks", "investing", "wallstreetbets"]:
         try:
             r = requests.get(
-                f"https://www.reddit.com/r/{sub}/search.json",
+                f"https://old.reddit.com/r/{sub}/search.json",
                 params={"q": query, "sort": "new", "limit": 10, "t": "week"},
-                headers={"User-Agent": "PortfolioSonar/2.0"},
+                headers={"User-Agent": "PortfolioSonar:v2.0 (by /u/portfolio_scanner)"},
                 timeout=10
             )
             for post in r.json().get("data",{}).get("children",[]):
