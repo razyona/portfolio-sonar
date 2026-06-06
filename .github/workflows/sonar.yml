@@ -38,6 +38,6 @@ jobs:
         run: |
           git config user.name "Portfolio Sonar"
           git config user.email "sonar@bot.local"
-          git add seen_ids.json digest_queue.json price_baseline.json last_digest.json 2>/dev/null || true
+          git add seen_ids.json digest_queue.json price_baseline.json last_digest.json macro_seen.json 2>/dev/null || true
           git diff --staged --quiet || git commit -m "chore: update sonar state [skip ci]"
           git push origin main || true
