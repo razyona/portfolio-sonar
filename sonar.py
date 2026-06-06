@@ -1,7 +1,7 @@
 """
-Portfolio Sonar — AMPX & SIVE.ST  |  v3 — 11 sources
-──────────────────────────────────────────────────────
-Sources per run (every 5 min):
+Portfolio Sonar — AMPX & SIVE.ST  |  v4 — 15 sources + US Macro
+──────────────────────────────────────────────────────────────────
+Stock sources per run (every 5 min):
   📰 Google News (EN + SV + institutional queries)
   🏛  SEC EDGAR 8-K + 13D/13G (insider/institutional)
   📊 Yahoo Finance              Finnhub news + earnings
@@ -10,6 +10,12 @@ Sources per run (every 5 min):
   📣 PR Newswire + Business Wire
   🏢 Cision Sweden (SIVE.ST)
   💹 Price alert ≥3%           Volume spike ≥2× avg
+
+US Macro sources (fire instantly on release):
+  🏦 Federal Reserve RSS (FOMC decisions, speeches, minutes)
+  📈 BEA RSS (GDP, PCE, Personal Income, Trade)
+  📊 Finnhub Economic Calendar (CPI, NFP, PPI, Retail Sales...)
+  🔍 Google News (macro keyword monitoring)
 
 Institutional detection: JPMorgan, Goldman, BlackRock etc. → auto URGENT
 Groq classifier → 🔴 URGENT pushed immediately | 🟡 WATCH hourly digest
@@ -34,11 +40,39 @@ SEEN_FILE        = os.path.join(DIR, "seen_ids.json")
 DIGEST_FILE      = os.path.join(DIR, "digest_queue.json")
 PRICE_FILE       = os.path.join(DIR, "price_baseline.json")
 LAST_DIGEST_FILE = os.path.join(DIR, "last_digest.json")
+MACRO_SEEN_FILE  = os.path.join(DIR, "macro_seen.json")
 
 PRICE_ALERT_PCT  = 3.0   # % move triggers URGENT
 VOLUME_SPIKE_X   = 2.0   # × avg 20-day volume triggers URGENT
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PortfolioSonar/2.0)"}
+
+# ── US Macro keywords → auto-URGENT ──────────────────────────────────────────
+MACRO_URGENT_KW = [
+    # Fed / rates
+    "federal reserve", "fed rate", "rate hike", "rate cut", "rate decision",
+    "fomc", "fed funds rate", "monetary policy", "interest rate decision",
+    "jerome powell", "kevin warsh", "fed chair",
+    # Inflation
+    "consumer price index", " cpi ", "core cpi", "inflation report",
+    "personal consumption expenditure", " pce ", "core pce",
+    "producer price index", " ppi ",
+    # Jobs
+    "non-farm payroll", "nonfarm payroll", "jobs report", "jobs added",
+    "unemployment rate", "initial jobless claims", "jobless claims",
+    # GDP / growth
+    " gdp ", "gross domestic product", "economic growth", "recession",
+    "gdp growth", "gdp contraction", "gdp estimate",
+    # Trade / consumer
+    "retail sales", "consumer confidence", "ism manufacturing",
+    "ism services", "trade deficit", "trade balance",
+    # Market stress
+    "10-year yield", "10-year treasury", "inverted yield curve",
+    "treasury yield", "stagflation", "federal open market",
+    # BEA/BLS releases
+    "bureau of economic analysis", "bureau of labor statistics",
+    "personal income", "personal outlays",
+]
 
 # ── Institutional investor names → auto-URGENT ────────────────────────────────
 INSTITUTIONAL_NAMES = [
@@ -416,6 +450,151 @@ def fetch_earnings_alerts() -> list:
             print(f"    [Earnings] {sym}: {e}")
     return alerts
 
+# ── Source: Federal Reserve RSS ──────────────────────────────────────────────
+def fetch_fed_rss() -> list:
+    """Official Fed press releases: rate decisions, FOMC minutes, speeches."""
+    try:
+        feed = feedparser.parse("https://www.federalreserve.gov/feeds/press_all.xml")
+        out = []
+        for e in feed.entries[:15]:
+            out.append(make_item(
+                e.get("id", e.get("link", e.get("title",""))),
+                e.get("title",""),
+                "Federal Reserve",
+                e.get("link",""),
+                e.get("published",""),
+                e.get("summary",""),
+                "Macro"
+            ))
+        return out
+    except Exception as ex:
+        print(f"    [Fed RSS] {ex}")
+        return []
+
+# ── Source: BEA (GDP / PCE / Trade) ──────────────────────────────────────────
+def fetch_bea_rss() -> list:
+    """Bureau of Economic Analysis: GDP, PCE, Personal Income, Trade Balance."""
+    try:
+        feed = feedparser.parse("https://apps.bea.gov/rss/rss.xml")
+        out = []
+        for e in feed.entries[:15]:
+            out.append(make_item(
+                e.get("link", e.get("title","")),
+                e.get("title",""),
+                "BEA (GDP/PCE/Trade)",
+                e.get("link",""),
+                e.get("published",""),
+                e.get("summary",""),
+                "Macro"
+            ))
+        return out
+    except Exception as ex:
+        print(f"    [BEA RSS] {ex}")
+        return []
+
+# ── Source: Finnhub Economic Calendar ────────────────────────────────────────
+def fetch_finnhub_macro() -> list:
+    """Finnhub econ calendar — fires only when actual value is newly posted."""
+    try:
+        r = requests.get(
+            "https://finnhub.io/api/v1/calendar/economic",
+            params={"token": FH_KEY},
+            timeout=12
+        )
+        events = r.json().get("economicCalendar", [])
+        out = []
+        for ev in events[:80]:
+            if not ev.get("actual"):           # not yet released → skip
+                continue
+            if ev.get("country","") != "US":   # US only
+                continue
+            event_name = ev.get("event","")
+            actual     = ev.get("actual","")
+            estimate   = ev.get("estimate","")
+            prev       = ev.get("prev","")
+            event_time = ev.get("time","")
+
+            # Beat / miss vs estimate
+            beat_miss = ""
+            try:
+                def _num(s):
+                    return float(str(s).replace("%","").replace("K","e3")
+                                       .replace("M","e6").replace("B","e9"))
+                if estimate:
+                    diff = _num(actual) - _num(estimate)
+                    beat_miss = "✅ BEAT" if diff > 0 else ("❌ MISS" if diff < 0 else "〰 IN LINE")
+            except:
+                pass
+
+            title = f"📊 {event_name}: {actual}"
+            if beat_miss:
+                title += f"  {beat_miss}"
+            if estimate:
+                title += f"  (est: {estimate})"
+            if prev:
+                title += f"  | prev: {prev}"
+
+            out.append(make_item(
+                mid(f"macro_{event_name}_{event_time}"),
+                title,
+                "Finnhub Economic Calendar",
+                "https://finnhub.io/calendar/economic",
+                event_time,
+                f"Actual: {actual} | Estimate: {estimate} | Previous: {prev}",
+                "Macro"
+            ))
+        return out
+    except Exception as ex:
+        print(f"    [Finnhub Macro] {ex}")
+        return []
+
+# ── Source: Google News — macro keywords ─────────────────────────────────────
+def fetch_macro_google() -> list:
+    """Targeted Google News queries for high-impact US macro releases."""
+    queries = [
+        "Federal Reserve rate decision OR FOMC statement",
+        "CPI inflation report \"consumer price index\" US",
+        "\"non-farm payrolls\" OR \"jobs report\" OR unemployment US",
+        "US GDP \"gross domestic product\" report",
+        "PCE inflation OR \"retail sales\" OR PPI US report",
+    ]
+    out = []
+    for q in queries:
+        try:
+            out.extend(fetch_google(q))
+        except Exception as ex:
+            print(f"    [Macro Google] {ex}")
+    return out
+
+# ── Macro helpers ─────────────────────────────────────────────────────────────
+def is_macro_event(item: dict) -> bool:
+    blob = (" " + (item.get("title","") + " " + item.get("summary","")).lower() + " ")
+    return any(k in blob for k in MACRO_URGENT_KW)
+
+def analyze_macro(item: dict) -> str:
+    prompt = (
+        "Buy-side analyst. Write a concise Telegram alert for this US macro release. Max 380 chars, plain text.\n"
+        f"Event: {item['title']}\nSource: {item['source']}\nDetails: {item.get('summary','')}\n\n"
+        "Format:\n"
+        "Data: [one sentence on what was released]\n"
+        "Impact: Bullish/Bearish/Neutral for stocks — [why in 1 line]\n"
+        "Watch: [key thing to monitor next]"
+    )
+    try:
+        return groq_post("llama-3.3-70b-versatile", prompt, 220)
+    except Exception as e:
+        return f"Analysis unavailable: {e}"
+
+def fmt_macro_urgent(item: dict) -> str:
+    now = datetime.now(IL).strftime("%d/%m %H:%M")
+    return (
+        f"📊 <b>MACRO ALERT — US Economy</b>  {now} IL\n"
+        f"<b>{item['title'][:180]}</b>\n"
+        f"<i>{item['source']}</i>\n\n"
+        f"{item.get('analysis','')}\n\n"
+        f"🔗 {item.get('link','')}"
+    )
+
 # ── Source: Price alert ───────────────────────────────────────────────────────
 def check_price() -> list:
     alerts   = []
@@ -534,7 +713,7 @@ def analyze(item: dict, sym: str, name: str) -> str:
         return f"Analysis error: {e}"
 
 # ── Formatters ────────────────────────────────────────────────────────────────
-LAYER_ICON = {"Regulatory": "🏛", "Price": "💹", "News": "📰", "Social": "💬"}
+LAYER_ICON = {"Regulatory": "🏛", "Price": "💹", "News": "📰", "Social": "💬", "Macro": "📊"}
 
 def fmt_urgent(item: dict, sym: str, analysis: str) -> str:
     now  = datetime.now(IL).strftime("%d/%m %H:%M")
@@ -648,6 +827,35 @@ def main():
         cfg = TICKERS.get(sym, {})
         analysis = analyze(forced_item, sym, cfg.get("name",""))
         urgent_msgs.append(fmt_urgent(forced_item, sym, analysis))
+
+    # ── US Macro sources ──────────────────────────────────────────────
+    print("\n  [MACRO] scanning US economic releases...")
+    macro_seen     = set(load_json(MACRO_SEEN_FILE, []))
+    new_macro_seen = set()
+    macro_items    = []
+
+    macro_items += fetch_fed_rss()
+    macro_items += fetch_bea_rss()
+    macro_items += fetch_finnhub_macro()
+    macro_items += fetch_macro_google()
+
+    macro_cnt = 0
+    for item in macro_items:
+        iid = item["id"]
+        if iid in macro_seen or iid in new_macro_seen:
+            continue
+        new_macro_seen.add(iid)
+        if not is_recent(item.get("published",""), hours=36):
+            continue
+        if not is_macro_event(item):
+            continue
+        item["analysis"] = analyze_macro(item)
+        tg_send(fmt_macro_urgent(item))
+        macro_cnt += 1
+        print(f"  📊 MACRO URGENT → Telegram: {item['title'][:60]}")
+
+    save_json(MACRO_SEEN_FILE, list((macro_seen | new_macro_seen))[-3000:])
+    print(f"  [MACRO] {macro_cnt} macro alerts sent, {len(macro_items)} items scanned")
 
     # ── Send URGENT immediately ───────────────────────────────────────
     for msg in urgent_msgs:
