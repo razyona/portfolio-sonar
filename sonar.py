@@ -1,24 +1,20 @@
 """
-Portfolio Sonar — AMPX & SIVE.ST  |  v4 — 15 sources + US Macro
+Portfolio Sonar — AMPX & SIVE.ST  |  v5 — מיקוד + חבילה אחת
 ──────────────────────────────────────────────────────────────────
-Stock sources per run (every 5 min):
-  📰 Google News (EN + SV + institutional queries)
-  🏛  SEC EDGAR 8-K + 13D/13G (insider/institutional)
-  📊 Yahoo Finance              Finnhub news + earnings
-  🏦  Finnhub insider transactions (SEC Form 4)
-  💬 StockTwits                 Reddit
-  📣 PR Newswire + Business Wire
-  🏢 Cision Sweden (SIVE.ST)
-  💹 Price alert ≥3%           Volume spike ≥2× avg
+מקורות מניות (כל 5 דקות):
+  📰 Google News (EN + SV)       📊 Yahoo Finance + Finnhub
+  🏛  SEC EDGAR 8-K + 13D/13G    🏦 Finnhub Form 4 (insider)
+  🏢 Cision Sweden (SIVE.ST)     🔍 Google News מוסדי
 
-US Macro sources (fire instantly on release):
-  🏦 Federal Reserve RSS (FOMC decisions, speeches, minutes)
-  📈 BEA RSS (GDP, PCE, Personal Income, Trade)
-  📊 Finnhub Economic Calendar (CPI, NFP, PPI, Retail Sales...)
-  🔍 Google News (macro keyword monitoring)
+מקורות מאקרו (מיידי בעת פרסום):
+  🏦 Federal Reserve RSS         📈 BEA (GDP / PCE / Trade)
+  📊 Finnhub Economic Calendar   🔍 Google News macro
 
-Institutional detection: JPMorgan, Goldman, BlackRock etc. → auto URGENT
-Groq classifier → 🔴 URGENT pushed immediately | 🟡 WATCH hourly digest
+פילוסופיה:
+  • כל האירועים הדחופים מריצה אחת → הודעה מקובצת אחת בלבד
+  • ניתוח איכותי: מודל 70b מסכם את כל האירועים בבת אחת
+  • ללא התראות מחיר/נפח
+  • ללא Reddit / StockTwits / PR Newswire / Business Wire
 """
 
 import os, json, hashlib, re, time
@@ -38,38 +34,24 @@ DIR = os.path.dirname(os.path.abspath(__file__))
 
 SEEN_FILE        = os.path.join(DIR, "seen_ids.json")
 DIGEST_FILE      = os.path.join(DIR, "digest_queue.json")
-PRICE_FILE       = os.path.join(DIR, "price_baseline.json")
 LAST_DIGEST_FILE = os.path.join(DIR, "last_digest.json")
 MACRO_SEEN_FILE  = os.path.join(DIR, "macro_seen.json")
 
-PRICE_ALERT_PCT  = 3.0   # % move triggers URGENT
-VOLUME_SPIKE_X   = 2.0   # × avg 20-day volume triggers URGENT
-
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PortfolioSonar/2.0)"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PortfolioSonar/5.0)"}
 
 # ── US Macro keywords → auto-URGENT ──────────────────────────────────────────
 MACRO_URGENT_KW = [
-    # Fed / rates
     "federal reserve", "fed rate", "rate hike", "rate cut", "rate decision",
     "fomc", "fed funds rate", "monetary policy", "interest rate decision",
     "jerome powell", "kevin warsh", "fed chair",
-    # Inflation
     "consumer price index", " cpi ", "core cpi", "inflation report",
     "personal consumption expenditure", " pce ", "core pce",
     "producer price index", " ppi ",
-    # Jobs
     "non-farm payroll", "nonfarm payroll", "jobs report", "jobs added",
     "unemployment rate", "initial jobless claims", "jobless claims",
-    # GDP / growth
     " gdp ", "gross domestic product", "economic growth", "recession",
-    "gdp growth", "gdp contraction", "gdp estimate",
-    # Trade / consumer
-    "retail sales", "consumer confidence", "ism manufacturing",
-    "ism services", "trade deficit", "trade balance",
-    # Market stress
-    "10-year yield", "10-year treasury", "inverted yield curve",
-    "treasury yield", "stagflation", "federal open market",
-    # BEA/BLS releases
+    "retail sales", "consumer confidence", "ism manufacturing", "ism services",
+    "10-year yield", "treasury yield", "stagflation", "federal open market",
     "bureau of economic analysis", "bureau of labor statistics",
     "personal income", "personal outlays",
 ]
@@ -92,32 +74,24 @@ TICKERS = {
     "AMPX": {
         "name":        "Amprius Technologies",
         "yahoo":       "AMPX",
-        "stocktwits":  "AMPX",
         "finnhub":     "AMPX",
         "keywords":    ["ampx", "amprius", "silicon anode", "battery energy", "amprius technologies"],
         "google_q_en": "AMPX Amprius Technologies",
         "google_q_sv": None,
         "cision_slug": None,
-        "reddit_q":    "AMPX OR Amprius Technologies",
         "sec":         True,
         "is_swedish":  False,
-        "prnw_kw":     ["amprius"],
-        "bw_kw":       ["amprius"],
     },
     "SIVE.ST": {
         "name":        "Sivers Semiconductors",
         "yahoo":       "SIVE.ST",
-        "stocktwits":  None,
         "finnhub":     "SIVE:STO",
         "keywords":    ["sive", "sivers", "sivers semiconductors", "sivers ima", "mmwave", "5g chip"],
         "google_q_en": "Sivers Semiconductors SIVE Stockholm",
         "google_q_sv": "Sivers Semiconductors",
         "cision_slug": "sivers-semiconductors",
-        "reddit_q":    "Sivers Semiconductors SIVE",
         "sec":         False,
         "is_swedish":  True,
-        "prnw_kw":     ["sivers"],
-        "bw_kw":       ["sivers"],
     },
 }
 
@@ -145,10 +119,15 @@ def save_json(path, data):
 def mid(text: str) -> str:
     return hashlib.md5(text.encode()).hexdigest()[:14]
 
+def title_id(title: str) -> str:
+    """Title-based dedup key — strips noise, catches same story from different sources."""
+    normalized = re.sub(r'[^a-z0-9א-ת]', '', title.lower())
+    return "t:" + mid(normalized[:70])
+
 def clean(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "").strip()
 
-def is_recent(pub: str, hours: int = 48) -> bool:
+def is_recent(pub: str, hours: int = 24) -> bool:
     if not pub:
         return True
     try:
@@ -166,6 +145,7 @@ def kw_hit(item: dict, keywords: list) -> bool:
 def make_item(id_src, title, source, link, published, summary, layer) -> dict:
     return {
         "id":        mid(id_src),
+        "tid":       title_id(title),
         "title":     clean(title)[:180],
         "source":    source,
         "link":      link or "",
@@ -193,6 +173,49 @@ def fetch_google(query: str, lang: str = "en-US", region: str = "US") -> list:
         ))
     return out
 
+# ── Source: Yahoo Finance ─────────────────────────────────────────────────────
+def fetch_yahoo(symbol: str, yahoo_sym: str) -> list:
+    try:
+        news = yf.Ticker(yahoo_sym).news or []
+        out = []
+        for n in news[:15]:
+            ts = n.get("providerPublishTime", 0)
+            pub = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
+            out.append(make_item(
+                n.get("link", n.get("title","")),
+                n.get("title",""),
+                n.get("publisher","Yahoo Finance"),
+                n.get("link",""), pub, "", "News"
+            ))
+        return out
+    except Exception as e:
+        print(f"    [Yahoo] {symbol}: {e}")
+        return []
+
+# ── Source: Finnhub company news ──────────────────────────────────────────────
+def fetch_finnhub(fh_sym: str) -> list:
+    try:
+        today    = datetime.now().strftime("%Y-%m-%d")
+        week_ago = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+        r = requests.get(
+            "https://finnhub.io/api/v1/company-news",
+            params={"symbol": fh_sym, "from": week_ago, "to": today, "token": FH_KEY},
+            timeout=10
+        )
+        out = []
+        for n in r.json()[:12]:
+            ts = n.get("datetime",0)
+            pub = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
+            out.append(make_item(
+                str(n.get("id", n.get("headline",""))),
+                n.get("headline",""), n.get("source","Finnhub"),
+                n.get("url",""), pub, n.get("summary",""), "News"
+            ))
+        return out
+    except Exception as e:
+        print(f"    [Finnhub] {fh_sym}: {e}")
+        return []
+
 # ── Source: SEC EDGAR 8-K ─────────────────────────────────────────────────────
 def fetch_sec(ticker: str) -> list:
     url = (f"https://www.sec.gov/cgi-bin/browse-edgar"
@@ -207,51 +230,6 @@ def fetch_sec(ticker: str) -> list:
                              e.get("summary",""), "Regulatory"))
     return out
 
-# ── Source: Yahoo Finance ─────────────────────────────────────────────────────
-def fetch_yahoo(symbol: str, yahoo_sym: str) -> list:
-    try:
-        news = yf.Ticker(yahoo_sym).news or []
-        out = []
-        for n in news[:12]:
-            ts = n.get("providerPublishTime", 0)
-            pub = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
-            out.append(make_item(
-                n.get("link", n.get("title","")),
-                n.get("title",""),
-                n.get("publisher","Yahoo Finance"),
-                n.get("link",""), pub, "", "News"
-            ))
-        return out
-    except Exception as e:
-        print(f"    [Yahoo] {symbol}: {e}")
-        return []
-
-# ── Source: StockTwits ────────────────────────────────────────────────────────
-def fetch_stocktwits(symbol: str) -> list:
-    try:
-        r = requests.get(
-            f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json",
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36", "Accept": "application/json"},
-            timeout=10
-        )
-        if r.status_code != 200 or not r.text.strip():
-            return []
-        messages = r.json().get("messages", [])
-        out = []
-        for m in messages[:20]:
-            sent = ((m.get("entities") or {}).get("sentiment") or {}).get("basic","")
-            body = m.get("body","")[:140]
-            uid = str(m.get("id", body))
-            title = f"[{sent}] {body}" if sent else body
-            out.append(make_item(uid, title,
-                                 f"StockTwits @{m.get('user',{}).get('username','?')}",
-                                 f"https://stocktwits.com/symbol/{symbol}",
-                                 m.get("created_at",""), body, "Social"))
-        return out
-    except Exception as e:
-        print(f"    [StockTwits] {symbol}: {e}")
-        return []
-
 # ── Source: Finnhub insider transactions (SEC Form 4) ────────────────────────
 def fetch_finnhub_insider(fh_sym: str) -> list:
     try:
@@ -261,21 +239,20 @@ def fetch_finnhub_insider(fh_sym: str) -> list:
             timeout=10
         )
         out = []
-        for tx in r.json().get("data", [])[:15]:
-            name  = tx.get("name", "Unknown")
-            chg   = tx.get("change", 0)
-            price = tx.get("transactionPrice", 0)
-            code  = tx.get("transactionCode", "")
-            date  = tx.get("transactionDate", "")
+        for tx in r.json().get("data", [])[:10]:
+            name   = tx.get("name", "Unknown")
+            chg    = tx.get("change", 0)
+            price  = tx.get("transactionPrice", 0)
+            date   = tx.get("transactionDate", "")
             shares = tx.get("share", 0)
-            action = "BUY" if chg > 0 else "SELL"
+            action = "רכישה" if chg > 0 else "מכירה"
             arrow  = "📈" if chg > 0 else "📉"
-            title  = f"{arrow} Insider {action}: {name} — {chg:+,} shares @ ${price:.2f} ({date})"
+            title  = f"{arrow} Insider {action}: {name} — {chg:+,} מניות @ ${price:.2f} ({date})"
             uid    = tx.get("id", f"{name}{date}{chg}")
             out.append(make_item(
                 str(uid), title, "SEC Form 4 (Insider)",
                 f"https://finance.yahoo.com/quote/{fh_sym}/insider-transactions",
-                date, f"Total shares held: {shares:,}", "Regulatory"
+                date, f"סך מניות: {shares:,}", "Regulatory"
             ))
         return out
     except Exception as e:
@@ -311,76 +288,20 @@ def fetch_institutional_news(ticker: str, name: str, is_swedish: bool = False) -
     ]
     if is_swedish:
         queries.append(f'"{name}" flaggning OR storägare OR kapitalandel')
-
     out = []
     for q in queries:
         try:
             lang   = "sv" if is_swedish and "flagg" in q else "en-US"
             region = "SE" if is_swedish and "flagg" in q else "US"
-            items  = fetch_google(q, lang=lang, region=region)
-            out.extend(items)
+            out.extend(fetch_google(q, lang=lang, region=region))
         except Exception as e:
             print(f"    [Institutional news] {e}")
     return out
 
-# ── Source: Finnhub company news ──────────────────────────────────────────────
-def fetch_finnhub(fh_sym: str) -> list:
-    try:
-        today    = datetime.now().strftime("%Y-%m-%d")
-        week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        r = requests.get(
-            "https://finnhub.io/api/v1/company-news",
-            params={"symbol": fh_sym, "from": week_ago, "to": today, "token": FH_KEY},
-            timeout=10
-        )
-        out = []
-        for n in r.json()[:12]:
-            ts = n.get("datetime",0)
-            pub = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
-            out.append(make_item(
-                str(n.get("id", n.get("headline",""))),
-                n.get("headline",""), n.get("source","Finnhub"),
-                n.get("url",""), pub, n.get("summary",""), "News"
-            ))
-        return out
-    except Exception as e:
-        print(f"    [Finnhub] {fh_sym}: {e}")
-        return []
-
-# ── Source: Reddit (no auth) ──────────────────────────────────────────────────
-def fetch_reddit(query: str) -> list:
-    out = []
-    for sub in ["stocks", "investing", "wallstreetbets"]:
-        try:
-            r = requests.get(
-                f"https://old.reddit.com/r/{sub}/search.json",
-                params={"q": query, "sort": "new", "limit": 10, "t": "week"},
-                headers={"User-Agent": "PortfolioSonar:v2.0 (by /u/portfolio_scanner)"},
-                timeout=10
-            )
-            for post in r.json().get("data",{}).get("children",[]):
-                d = post.get("data",{})
-                ts = d.get("created_utc",0)
-                pub = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat() if ts else ""
-                title = d.get("title","")[:160]
-                link  = f"https://reddit.com{d.get('permalink','')}"
-                score = d.get("score",0)
-                out.append(make_item(
-                    d.get("id", title),
-                    f"[{score}▲] {title}",
-                    f"r/{sub}",
-                    link, pub, d.get("selftext","")[:200], "Social"
-                ))
-            time.sleep(0.5)   # polite rate limit
-        except Exception as e:
-            print(f"    [Reddit] r/{sub}: {e}")
-    return out
-
-# ── Source: Cision Sweden (SIVE.ST) ──────────────────────────────────────────
+# ── Source: Cision Sweden ────────────────────────────────────────────────────
 def fetch_cision(slug: str) -> list:
     try:
-        url  = f"https://news.cision.com/{slug}/r/"
-        feed = feedparser.parse(url)
+        feed = feedparser.parse(f"https://news.cision.com/{slug}/r/")
         out = []
         for e in feed.entries[:8]:
             out.append(make_item(
@@ -392,28 +313,6 @@ def fetch_cision(slug: str) -> list:
         return out
     except Exception as e:
         print(f"    [Cision] {slug}: {e}")
-        return []
-
-# ── Source: PR Newswire + Business Wire ───────────────────────────────────────
-def fetch_wire(url: str, source_name: str, keywords: list) -> list:
-    try:
-        feed = feedparser.parse(url)
-        out = []
-        for e in feed.entries[:30]:
-            title   = clean(e.get("title",""))
-            summary = clean(e.get("summary",""))
-            blob    = (title + " " + summary).lower()
-            if not any(k in blob for k in keywords):
-                continue
-            out.append(make_item(
-                e.get("link", title),
-                title, source_name,
-                e.get("link",""), e.get("published",""),
-                summary, "Regulatory"
-            ))
-        return out
-    except Exception as e:
-        print(f"    [{source_name}]: {e}")
         return []
 
 # ── Source: Finnhub earnings calendar ────────────────────────────────────────
@@ -432,19 +331,20 @@ def fetch_earnings_alerts() -> list:
                 timeout=10
             )
             for ev in r.json().get("earningsCalendar",[]):
-                date = ev.get("date","")
+                date    = ev.get("date","")
                 eps_est = ev.get("epsEstimate","")
-                iid = mid(f"earnings_{sym}_{date}")
+                iid     = mid(f"earnings_{sym}_{date}")
                 alerts.append({
-                    "id":           iid,
-                    "title":        f"📅 דוח רווחים {date} — EPS צפוי: {eps_est}",
-                    "source":       "Finnhub Earnings Calendar",
-                    "link":         f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
-                    "published":    datetime.now(timezone.utc).isoformat(),
-                    "summary":      f"דוח רווחים מתוכנן ל-{sym}",
-                    "layer":        "Regulatory",
-                    "ticker":       sym,
-                    "force_urgent": True,
+                    "id":        iid,
+                    "tid":       iid,
+                    "title":     f"📅 דוח רווחים {date} — EPS צפוי: {eps_est}",
+                    "source":    "Finnhub Earnings Calendar",
+                    "link":      f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
+                    "published": datetime.now(timezone.utc).isoformat(),
+                    "summary":   f"דוח רווחים מתוכנן ל-{sym}",
+                    "layer":     "Regulatory",
+                    "ticker":    sym,
+                    "reason":    "דוח רווחים מתקרב",
                 })
         except Exception as e:
             print(f"    [Earnings] {sym}: {e}")
@@ -452,19 +352,15 @@ def fetch_earnings_alerts() -> list:
 
 # ── Source: Federal Reserve RSS ──────────────────────────────────────────────
 def fetch_fed_rss() -> list:
-    """Official Fed press releases: rate decisions, FOMC minutes, speeches."""
     try:
         feed = feedparser.parse("https://www.federalreserve.gov/feeds/press_all.xml")
         out = []
         for e in feed.entries[:15]:
             out.append(make_item(
                 e.get("id", e.get("link", e.get("title",""))),
-                e.get("title",""),
-                "Federal Reserve",
-                e.get("link",""),
-                e.get("published",""),
-                e.get("summary",""),
-                "Macro"
+                e.get("title",""), "Federal Reserve",
+                e.get("link",""), e.get("published",""),
+                e.get("summary",""), "Macro"
             ))
         return out
     except Exception as ex:
@@ -473,19 +369,15 @@ def fetch_fed_rss() -> list:
 
 # ── Source: BEA (GDP / PCE / Trade) ──────────────────────────────────────────
 def fetch_bea_rss() -> list:
-    """Bureau of Economic Analysis: GDP, PCE, Personal Income, Trade Balance."""
     try:
         feed = feedparser.parse("https://apps.bea.gov/rss/rss.xml")
         out = []
         for e in feed.entries[:15]:
             out.append(make_item(
                 e.get("link", e.get("title","")),
-                e.get("title",""),
-                "BEA (GDP/PCE/Trade)",
-                e.get("link",""),
-                e.get("published",""),
-                e.get("summary",""),
-                "Macro"
+                e.get("title",""), "BEA (GDP/PCE/Trade)",
+                e.get("link",""), e.get("published",""),
+                e.get("summary",""), "Macro"
             ))
         return out
     except Exception as ex:
@@ -494,7 +386,6 @@ def fetch_bea_rss() -> list:
 
 # ── Source: Finnhub Economic Calendar ────────────────────────────────────────
 def fetch_finnhub_macro() -> list:
-    """Finnhub econ calendar — fires only when actual value is newly posted."""
     try:
         r = requests.get(
             "https://finnhub.io/api/v1/calendar/economic",
@@ -504,9 +395,9 @@ def fetch_finnhub_macro() -> list:
         events = r.json().get("economicCalendar", [])
         out = []
         for ev in events[:80]:
-            if not ev.get("actual"):           # not yet released → skip
+            if not ev.get("actual"):
                 continue
-            if ev.get("country","") != "US":   # US only
+            if ev.get("country","") != "US":
                 continue
             event_name = ev.get("event","")
             actual     = ev.get("actual","")
@@ -514,7 +405,6 @@ def fetch_finnhub_macro() -> list:
             prev       = ev.get("prev","")
             event_time = ev.get("time","")
 
-            # Beat / miss vs estimate
             beat_miss = ""
             try:
                 def _num(s):
@@ -522,7 +412,7 @@ def fetch_finnhub_macro() -> list:
                                        .replace("M","e6").replace("B","e9"))
                 if estimate:
                     diff = _num(actual) - _num(estimate)
-                    beat_miss = "✅ BEAT" if diff > 0 else ("❌ MISS" if diff < 0 else "〰 IN LINE")
+                    beat_miss = "✅ עבר ציפיות" if diff > 0 else ("❌ מתחת לציפיות" if diff < 0 else "〰 בהתאם לציפיות")
             except:
                 pass
 
@@ -530,17 +420,16 @@ def fetch_finnhub_macro() -> list:
             if beat_miss:
                 title += f"  {beat_miss}"
             if estimate:
-                title += f"  (est: {estimate})"
+                title += f"  (צפוי: {estimate})"
             if prev:
-                title += f"  | prev: {prev}"
+                title += f"  | קודם: {prev}"
 
             out.append(make_item(
                 mid(f"macro_{event_name}_{event_time}"),
-                title,
-                "Finnhub Economic Calendar",
+                title, "Finnhub Economic Calendar",
                 "https://finnhub.io/calendar/economic",
                 event_time,
-                f"Actual: {actual} | Estimate: {estimate} | Previous: {prev}",
+                f"בפועל: {actual} | צפוי: {estimate} | קודם: {prev}",
                 "Macro"
             ))
         return out
@@ -550,7 +439,6 @@ def fetch_finnhub_macro() -> list:
 
 # ── Source: Google News — macro keywords ─────────────────────────────────────
 def fetch_macro_google() -> list:
-    """Targeted Google News queries for high-impact US macro releases."""
     queries = [
         "Federal Reserve rate decision OR FOMC statement",
         "CPI inflation report \"consumer price index\" US",
@@ -571,92 +459,6 @@ def is_macro_event(item: dict) -> bool:
     blob = (" " + (item.get("title","") + " " + item.get("summary","")).lower() + " ")
     return any(k in blob for k in MACRO_URGENT_KW)
 
-def analyze_macro(item: dict) -> str:
-    prompt = (
-        "אנליסט buy-side. כתוב התראת מאקרו קצרה בעברית לטלגרם. מקסימום 380 תווים, טקסט רגיל.\n"
-        f"אירוע: {item['title']}\nמקור: {item['source']}\nפרטים: {item.get('summary','')}\n\n"
-        "פורמט:\n"
-        "נתון: [משפט אחד על מה פורסם]\n"
-        "השפעה: שורי/דובי/ניטרלי למניות — [למה, שורה אחת]\n"
-        "לעקוב: [הדבר הבא לנטר]\n\n"
-        "כתוב הכל בעברית. מונחים כמו CPI, GDP, Fed, FOMC, PCE, NFP — השאר באנגלית."
-    )
-    try:
-        return groq_post("llama-3.3-70b-versatile", prompt, 220)
-    except Exception as e:
-        return f"ניתוח לא זמין: {e}"
-
-def fmt_macro_urgent(item: dict) -> str:
-    now = datetime.now(IL).strftime("%d/%m %H:%M")
-    return (
-        f"📊 <b>התראת מאקרו — כלכלת ארה\"ב</b>  {now} ישראל\n"
-        f"<b>{item['title'][:180]}</b>\n"
-        f"<i>{item['source']}</i>\n\n"
-        f"{item.get('analysis','')}\n\n"
-        f"🔗 {item.get('link','')}"
-    )
-
-# ── Source: Price alert ───────────────────────────────────────────────────────
-def check_price() -> list:
-    alerts   = []
-    baseline = load_json(PRICE_FILE, {})
-    new_base = {}
-    for sym, cfg in TICKERS.items():
-        try:
-            hist = yf.Ticker(cfg["yahoo"]).history(period="2d")
-            if hist.empty:
-                continue
-            price = float(hist["Close"].iloc[-1])
-            new_base[sym] = price
-            if sym in baseline:
-                prev = baseline[sym]
-                pct  = ((price - prev) / prev) * 100
-                if abs(pct) >= PRICE_ALERT_PCT:
-                    arrow = "📈" if pct > 0 else "📉"
-                    direction = "עלה" if pct > 0 else "ירד"
-                    alerts.append({
-                        "id":           mid(f"price_{sym}_{datetime.now().strftime('%Y%m%d%H')}"),
-                        "title":        f"{arrow} {sym} {direction} {abs(pct):.1f}% → ${price:.3f}",
-                        "source":       "התראת מחיר",
-                        "link":         f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
-                        "published":    datetime.now(timezone.utc).isoformat(),
-                        "summary":      f"מ-${prev:.3f} ל-${price:.3f}",
-                        "layer":        "Price",
-                        "ticker":       sym,
-                        "force_urgent": True,
-                    })
-        except Exception as e:
-            print(f"    [Price] {sym}: {e}")
-    save_json(PRICE_FILE, new_base)
-    return alerts
-
-# ── Source: Volume anomaly ────────────────────────────────────────────────────
-def check_volume() -> list:
-    alerts = []
-    for sym, cfg in TICKERS.items():
-        try:
-            hist = yf.Ticker(cfg["yahoo"]).history(period="30d")
-            if len(hist) < 5:
-                continue
-            avg_vol  = float(hist["Volume"].iloc[:-1].tail(20).mean())
-            cur_vol  = float(hist["Volume"].iloc[-1])
-            if avg_vol > 0 and cur_vol >= avg_vol * VOLUME_SPIKE_X:
-                mult = cur_vol / avg_vol
-                alerts.append({
-                    "id":           mid(f"vol_{sym}_{datetime.now().strftime('%Y%m%d%H')}"),
-                    "title":        f"🔊 {sym} — ספייק בנפח {mult:.1f}× ממוצע ({int(cur_vol/1e6):.1f}M לעומת ממוצע {int(avg_vol/1e6):.1f}M)",
-                    "source":       "התראת נפח",
-                    "link":         f"https://finance.yahoo.com/quote/{cfg['yahoo']}",
-                    "published":    datetime.now(timezone.utc).isoformat(),
-                    "summary":      f"נפח נוכחי: {int(cur_vol):,} | ממוצע 20 יום: {int(avg_vol):,}",
-                    "layer":        "Price",
-                    "ticker":       sym,
-                    "force_urgent": True,
-                })
-        except Exception as e:
-            print(f"    [Volume] {sym}: {e}")
-    return alerts
-
 # ── Groq ──────────────────────────────────────────────────────────────────────
 def groq_post(model: str, prompt: str, max_tokens: int) -> str:
     r = requests.post(
@@ -665,17 +467,15 @@ def groq_post(model: str, prompt: str, max_tokens: int) -> str:
         json={"model": model,
               "messages": [{"role": "user", "content": prompt}],
               "max_tokens": max_tokens},
-        timeout=20
+        timeout=25
     )
     return r.json()["choices"][0]["message"]["content"].strip()
 
 def is_institutional_event(item: dict) -> bool:
-    """Fast local check — no API call needed."""
     blob = (item.get("title","") + " " + item.get("summary","")).lower()
     return any(inst in blob for inst in INSTITUTIONAL_NAMES)
 
 def classify(item: dict, sym: str, name: str) -> dict:
-    # ── Fast local override: institutional entry = always URGENT ──────────────
     if is_institutional_event(item):
         inst_matches = [i for i in INSTITUTIONAL_NAMES if i in
                         (item.get("title","") + item.get("summary","")).lower()]
@@ -683,20 +483,18 @@ def classify(item: dict, sym: str, name: str) -> dict:
             "urgency": "URGENT",
             "reason":  f"זוהתה פעילות מוסדית: {', '.join(inst_matches[:3])}"
         }
-
-    # ── Groq classification for everything else ───────────────────────────────
     prompt = (
-        f"Financial news classifier for {sym} ({name}).\n"
-        f"Title: {item['title']}\nSource: {item['source']} | Layer: {item['layer']}\n"
-        f"Summary: {item.get('summary','')[:120]}\n\n"
-        f"Reply ONLY with JSON: {{\"urgency\":\"URGENT|WATCH|FYI|IGNORE\",\"reason\":\"משפט אחד בעברית\"}}\n\n"
-        f"URGENT=SEC/earnings/M&A/bankruptcy/major partnership/price spike/institutional investor entry\n"
-        f"WATCH=analyst note, product news, exec change, relevant sector\n"
-        f"FYI=social chatter, vague mention  IGNORE=unrelated/spam\n"
-        f"The reason field must be written in Hebrew."
+        f"מסווג חדשות פיננסיות עבור {sym} ({name}).\n"
+        f"כותרת: {item['title']}\nמקור: {item['source']} | שכבה: {item['layer']}\n"
+        f"תקציר: {item.get('summary','')[:120]}\n\n"
+        f"השב אך ורק ב-JSON: {{\"urgency\":\"URGENT|WATCH|FYI|IGNORE\",\"reason\":\"משפט אחד בעברית\"}}\n\n"
+        f"URGENT = SEC / רווחים / מיזוג/רכישה / פשיטת רגל / שותפות מהותית / כניסת משקיע מוסדי\n"
+        f"WATCH  = המלצת אנליסט, חדשות מוצר, שינוי הנהלה, מגמה רלוונטית\n"
+        f"FYI    = ציוצים חברתיים, אזכור כללי\n"
+        f"IGNORE = לא רלוונטי / ספאם"
     )
     try:
-        raw = groq_post("llama-3.1-8b-instant", prompt, 80)
+        raw = groq_post("llama-3.3-70b-versatile", prompt, 80)
         m = re.search(r'\{.*\}', raw, re.DOTALL)
         if m:
             return json.loads(m.group())
@@ -704,46 +502,88 @@ def classify(item: dict, sym: str, name: str) -> dict:
         print(f"    [classify] {e}")
     return {"urgency": "WATCH", "reason": "סיווג לא זמין"}
 
-def analyze(item: dict, sym: str, name: str) -> str:
+def analyze_batch(items: list, sym: str, name: str) -> str:
+    """ניתוח אחד מקיף לכל האירועים הדחופים של טיקר אחד."""
+    items_text = "\n".join([
+        f"- [{item['source']}] {item['title']}"
+        for item in items[:6]
+    ])
     prompt = (
-        f"אנליסט buy-side. כתוב ניתוח קצר בעברית לטלגרם עבור {sym} ({name}). מקסימום 350 תווים, טקסט רגיל.\n"
-        f"כותרת: {item['title']}\nמקור: {item['source']}\nתקציר: {item.get('summary','')}\n\n"
+        f"אנליסט buy-side. סכם את האירועים הבאים עבור {sym} ({name}) בעברית תמציתית ומקצועית.\n"
+        f"מקסימום 450 תווים, טקסט רגיל.\n\n"
+        f"אירועים חדשים:\n{items_text}\n\n"
         f"פורמט:\n"
-        f"מה קרה: [משפט אחד]\n"
-        f"השפעה: שורי/דובי/ניטרלי — [למה]\n"
-        f"לעקוב: [נקודת מעקב מרכזית]\n\n"
-        f"כתוב הכל בעברית. מונחים מקצועיים (CPI, EPS, SEC וכד') — השאר באנגלית."
+        f"מה קרה: [משפט אחד מסכם את העיקר]\n"
+        f"השפעה: שורי/דובי/ניטרלי — [הסבר קצר]\n"
+        f"לעקוב: [נקודת מעקב אחת]\n\n"
+        f"כתוב הכל בעברית. מונחים מקצועיים (SEC, EPS, M&A, CPI וכד') — השאר באנגלית."
     )
     try:
-        return groq_post("llama-3.3-70b-versatile", prompt, 200)
+        return groq_post("llama-3.3-70b-versatile", prompt, 280)
     except Exception as e:
         return f"שגיאת ניתוח: {e}"
 
-# ── Formatters ────────────────────────────────────────────────────────────────
-LAYER_ICON = {"Regulatory": "🏛", "Price": "💹", "News": "📰", "Social": "💬", "Macro": "📊"}
-
-def fmt_urgent(item: dict, sym: str, analysis: str) -> str:
-    now  = datetime.now(IL).strftime("%d/%m %H:%M")
-    icon = LAYER_ICON.get(item.get("layer",""), "📡")
-    return (
-        f"🔴 <b>דחוף — {sym}</b>  {now} ישראל\n"
-        f"{icon} <b>{item['title'][:140]}</b>\n"
-        f"<i>{item['source']}</i>\n\n"
-        f"{analysis}\n\n"
-        f"🔗 {item.get('link','')}"
+def analyze_macro_batch(items: list) -> str:
+    """ניתוח מאקרו מקיף לכל הנתונים שפורסמו בריצה."""
+    items_text = "\n".join([f"- {item['title']}" for item in items[:5]])
+    prompt = (
+        f"אנליסט buy-side. סכם את נתוני המאקרו הבאים בעברית תמציתית ומקצועית.\n"
+        f"מקסימום 450 תווים.\n\n"
+        f"נתונים שפורסמו:\n{items_text}\n\n"
+        f"פורמט:\n"
+        f"נתון: [משפט אחד מסכם]\n"
+        f"השפעה: שורי/דובי/ניטרלי למניות — [הסבר קצר]\n"
+        f"לעקוב: [מה לנטר הלאה]\n\n"
+        f"כתוב בעברית. CPI, GDP, Fed, FOMC, PCE, NFP — השאר באנגלית."
     )
+    try:
+        return groq_post("llama-3.3-70b-versatile", prompt, 280)
+    except Exception as e:
+        return f"ניתוח לא זמין: {e}"
+
+# ── Formatters ────────────────────────────────────────────────────────────────
+LAYER_ICON = {"Regulatory": "🏛", "News": "📰", "Macro": "📊"}
+
+def fmt_bundled_urgent(by_ticker: dict, now_str: str) -> str:
+    """הודעה מקובצת אחת לכל האירועים הדחופים מהריצה הנוכחית."""
+    total = sum(len(v["items"]) for v in by_ticker.values())
+    lines = [f"🔴 <b>עדכון דחוף  {now_str} ישראל</b>  ({total} אירועים)\n"]
+    for sym, data in sorted(by_ticker.items()):
+        name  = TICKERS.get(sym, {}).get("name", "")
+        items = data["items"]
+        analysis = data["analysis"]
+        lines.append(f"<b>━━ {sym} — {name} ━━</b>")
+        for item in items[:4]:
+            icon = LAYER_ICON.get(item.get("layer",""), "📡")
+            lines.append(f"{icon} {item['title'][:120]}")
+            if item.get("reason"):
+                lines.append(f"<i>   {item['reason'][:80]}</i>")
+        lines.append("")
+        lines.append(analysis)
+        lines.append("")
+    return "\n".join(lines)
+
+def fmt_bundled_macro(items: list, analysis: str, now_str: str) -> str:
+    """הודעה מקובצת אחת לכל נתוני המאקרו מהריצה הנוכחית."""
+    lines = [f"📊 <b>התראת מאקרו — כלכלת ארה\"ב  {now_str} ישראל</b>\n"]
+    for item in items[:5]:
+        lines.append(f"• <b>{item['title'][:150]}</b>")
+        lines.append(f"  <i>{item['source']}</i>")
+    lines.append("")
+    lines.append(analysis)
+    return "\n".join(lines)
 
 def fmt_digest(items: list, now_str: str) -> str:
     if not items:
         return ""
-    lines = [f"🟡 <b>תקציר שעתי</b>  {now_str} ישראל\n"]
+    lines = [f"🟡 <b>תקציר שעתי  {now_str} ישראל</b>\n"]
     by_ticker: dict = {}
     for it in items:
         by_ticker.setdefault(it.get("ticker","?"), []).append(it)
     for sym, its in sorted(by_ticker.items()):
         name = TICKERS.get(sym,{}).get("name","")
         lines.append(f"<b>── {sym}  {name} ──</b>")
-        for it in its[:6]:
+        for it in its[:5]:
             icon = LAYER_ICON.get(it.get("layer",""),"•")
             lines.append(f"{icon} {it['title'][:100]}")
             if it.get("reason"):
@@ -756,13 +596,13 @@ def fmt_digest(items: list, now_str: str) -> str:
 def main():
     now_il  = datetime.now(IL)
     now_str = now_il.strftime("%d/%m/%Y %H:%M")
-    print(f"\n[{now_str}] ── Sonar scan start ──")
+    print(f"\n[{now_str}] ── Sonar v5 scan start ──")
 
     seen         = set(load_json(SEEN_FILE, []))
     digest_queue = load_json(DIGEST_FILE, [])
     last_digest  = load_json(LAST_DIGEST_FILE, {"hour_key": ""})
     new_seen     = set()
-    urgent_msgs  = []
+    urgent_by_ticker: dict = {}
     new_watch    = []
 
     # ── Per-ticker sources ────────────────────────────────────────────
@@ -770,40 +610,40 @@ def main():
         print(f"\n  [{sym}] fetching...")
         raw: list = []
 
+        # מקורות ראשיים
         raw += fetch_google(cfg["google_q_en"])
         raw += fetch_yahoo(sym, cfg["yahoo"])
+        raw += fetch_finnhub(cfg["finnhub"])
+
+        # רגולטורי / מוסדי
         if cfg.get("sec"):
             raw += fetch_sec(sym)
             raw += fetch_sec_institutional(sym, cfg["name"])
             raw += fetch_finnhub_insider(cfg["finnhub"])
-        if cfg.get("stocktwits"):
-            raw += fetch_stocktwits(cfg["stocktwits"])
-        raw += fetch_finnhub(cfg["finnhub"])
-        raw += fetch_reddit(cfg["reddit_q"])
         raw += fetch_institutional_news(sym, cfg["name"], is_swedish=cfg.get("is_swedish", False))
+
+        # שוודי
         if cfg.get("google_q_sv"):
             raw += fetch_google(cfg["google_q_sv"], lang="sv", region="SE")
         if cfg.get("cision_slug"):
             raw += fetch_cision(cfg["cision_slug"])
-        raw += fetch_wire(
-            "https://www.prnewswire.com/rss/news-releases-list.rss",
-            "PR Newswire", cfg["prnw_kw"]
-        )
-        raw += fetch_wire(
-            "https://feed.businesswire.com/rss/home/?rss=G1",
-            "Business Wire", cfg["bw_kw"]
-        )
 
         print(f"  [{sym}] {len(raw)} raw → dedup + filter...")
         all_kw = cfg["keywords"] + [sym.split(".")[0].lower(),
                                     cfg["name"].lower().split()[0]]
+        urgent_items = []
         new_cnt = 0
+
         for item in raw:
             iid = item["id"]
-            if iid in seen or iid in new_seen:
+            tid = item.get("tid","")
+            # dedup: גם לפי URL וגם לפי כותרת
+            if iid in seen or iid in new_seen or tid in seen or tid in new_seen:
                 continue
             new_seen.add(iid)
-            if not is_recent(item.get("published",""), hours=48):
+            if tid:
+                new_seen.add(tid)
+            if not is_recent(item.get("published",""), hours=24):
                 continue
             if not kw_hit(item, all_kw):
                 continue
@@ -816,60 +656,65 @@ def main():
             item["reason"] = clf.get("reason","")
 
             if urgency == "URGENT":
-                analysis = analyze(item, sym, cfg["name"])
-                urgent_msgs.append(fmt_urgent(item, sym, analysis))
+                urgent_items.append(item)
             elif urgency == "WATCH":
                 new_watch.append(item)
 
-        print(f"  [{sym}] {new_cnt} new items processed")
+        # ניתוח אחד מקיף לכל האירועים הדחופים של הטיקר
+        if urgent_items:
+            analysis = analyze_batch(urgent_items, sym, cfg["name"])
+            urgent_by_ticker[sym] = {"items": urgent_items, "analysis": analysis}
 
-    # ── Cross-ticker sources (price, volume, earnings) ────────────────
-    print("\n  [MARKET] checking price, volume, earnings...")
-    for forced_item in check_price() + check_volume() + fetch_earnings_alerts():
-        iid = forced_item["id"]
+        print(f"  [{sym}] {new_cnt} חדשים → {len(urgent_items)} דחופים")
+
+    # ── Earnings ──────────────────────────────────────────────────────
+    for item in fetch_earnings_alerts():
+        iid = item["id"]
         if iid in seen or iid in new_seen:
             continue
         new_seen.add(iid)
-        sym = forced_item.get("ticker", list(TICKERS.keys())[0])
-        cfg = TICKERS.get(sym, {})
-        analysis = analyze(forced_item, sym, cfg.get("name",""))
-        urgent_msgs.append(fmt_urgent(forced_item, sym, analysis))
+        sym = item.get("ticker", list(TICKERS.keys())[0])
+        if sym not in urgent_by_ticker:
+            analysis = analyze_batch([item], sym, TICKERS.get(sym,{}).get("name",""))
+            urgent_by_ticker[sym] = {"items": [item], "analysis": analysis}
+        else:
+            urgent_by_ticker[sym]["items"].append(item)
 
-    # ── US Macro sources ──────────────────────────────────────────────
-    print("\n  [MACRO] scanning US economic releases...")
+    # ── US Macro ──────────────────────────────────────────────────────
+    print("\n  [MACRO] scanning...")
     macro_seen     = set(load_json(MACRO_SEEN_FILE, []))
     new_macro_seen = set()
-    macro_items    = []
+    macro_urgent   = []
 
-    macro_items += fetch_fed_rss()
-    macro_items += fetch_bea_rss()
-    macro_items += fetch_finnhub_macro()
-    macro_items += fetch_macro_google()
-
-    macro_cnt = 0
-    for item in macro_items:
+    for item in fetch_fed_rss() + fetch_bea_rss() + fetch_finnhub_macro() + fetch_macro_google():
         iid = item["id"]
-        if iid in macro_seen or iid in new_macro_seen:
+        tid = item.get("tid","")
+        if iid in macro_seen or iid in new_macro_seen or tid in macro_seen or tid in new_macro_seen:
             continue
         new_macro_seen.add(iid)
+        if tid:
+            new_macro_seen.add(tid)
         if not is_recent(item.get("published",""), hours=36):
             continue
         if not is_macro_event(item):
             continue
-        item["analysis"] = analyze_macro(item)
-        tg_send(fmt_macro_urgent(item))
-        macro_cnt += 1
-        print(f"  📊 MACRO URGENT → Telegram: {item['title'][:60]}")
+        macro_urgent.append(item)
 
     save_json(MACRO_SEEN_FILE, list((macro_seen | new_macro_seen))[-3000:])
-    print(f"  [MACRO] {macro_cnt} macro alerts sent, {len(macro_items)} items scanned")
+    print(f"  [MACRO] {len(macro_urgent)} נתוני מאקרו חדשים")
 
-    # ── Send URGENT immediately ───────────────────────────────────────
-    for msg in urgent_msgs:
-        tg_send(msg)
-        print("  🔴 URGENT → Telegram")
+    # ── שליחה: הודעה מקובצת אחת לדחופים ────────────────────────────
+    if urgent_by_ticker:
+        tg_send(fmt_bundled_urgent(urgent_by_ticker, now_il.strftime("%d/%m %H:%M")))
+        total = sum(len(v["items"]) for v in urgent_by_ticker.values())
+        print(f"  🔴 הודעה מקובצת → Telegram ({total} אירועים ב-{len(urgent_by_ticker)} טיקרים)")
 
-    # ── Digest queue ──────────────────────────────────────────────────
+    if macro_urgent:
+        analysis = analyze_macro_batch(macro_urgent)
+        tg_send(fmt_bundled_macro(macro_urgent, analysis, now_il.strftime("%d/%m %H:%M")))
+        print(f"  📊 מאקרו מקובץ → Telegram ({len(macro_urgent)} נתונים)")
+
+    # ── תקציר שעתי ───────────────────────────────────────────────────
     digest_queue.extend(new_watch)
     digest_queue = digest_queue[-200:]
 
@@ -880,16 +725,16 @@ def main():
         msg = fmt_digest(digest_queue, now_il.strftime("%d/%m %H:%M"))
         if msg:
             tg_send(msg)
-            print(f"  🟡 Digest → Telegram ({len(digest_queue)} items)")
+            print(f"  🟡 תקציר שעתי → Telegram ({len(digest_queue)} פריטים)")
         digest_queue = []
         save_json(LAST_DIGEST_FILE, {"hour_key": hour_key})
-    elif len(digest_queue) == 0 and not urgent_msgs:
-        print("  ✓ No new items this run — silent (no Telegram noise)")
+    elif not urgent_by_ticker and not macro_urgent:
+        print("  ✓ אין פריטים חדשים — שקט")
 
-    # ── Persist ───────────────────────────────────────────────────────
+    # ── שמירת מצב ────────────────────────────────────────────────────
     save_json(SEEN_FILE,   list((seen | new_seen))[-6000:])
     save_json(DIGEST_FILE, digest_queue)
-    print(f"\n[{now_str}] Done — {len(urgent_msgs)} urgent, {len(new_watch)} queued")
+    print(f"\n[{now_str}] סיום")
 
 if __name__ == "__main__":
     main()
