@@ -109,7 +109,7 @@ def load_json(path, default):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except OSError:
         return default
 
 def save_json(path, data):
@@ -135,7 +135,7 @@ def is_recent(pub: str, hours: int = 24) -> bool:
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return (datetime.now(timezone.utc) - dt) < timedelta(hours=hours)
-    except:
+    except OSError:
         return True
 
 def kw_hit(item: dict, keywords: list) -> bool:
@@ -413,8 +413,8 @@ def fetch_finnhub_macro() -> list:
                 if estimate:
                     diff = _num(actual) - _num(estimate)
                     beat_miss = "✅ עבר ציפיות" if diff > 0 else ("❌ מתחת לציפיות" if diff < 0 else "〰 בהתאם לציפיות")
-            except:
-                pass
+            except OSError:
+        pass
 
             title = f"📊 {event_name}: {actual}"
             if beat_miss:
