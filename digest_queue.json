@@ -178,5 +178,17 @@
     "layer": "News",
     "ticker": "SIVE.ST",
     "reason": "\u05d7\u05d1\u05e8 \u05d4\u05d3\u05d9\u05e8\u05e7\u05d8\u05d5\u05e8\u05d9\u05d5\u05df \u05de\u05d2\u05d3\u05d9\u05dc \u05d0\u05ea \u05d4\u05d7\u05d6\u05e7\u05d5\u05ea\u05d9\u05d5 \u05d1-Sivers Semiconductors"
+  },
+  {
+    "id": "ef31e1cf13c9a2",
+    "tid": "t:faa13b2a1c5e99",
+    "title": "Jim Cramer: Fast Food Is 'Challenged,' But This Industrial Stock Is 'A Good Spec'",
+    "source": "Benzinga",
+    "link": "https://finnhub.io/api/news?id=1f5330313dd7201a06d4fe663a13680444bafab0be2544921f6550590b7e4979",
+    "published": "2026-07-09T07:35:41+00:00",
+    "summary": "Jim Cramer recommends buying Amprius Technologies with $33 price target. Wendy&#39;s (WEN) and McDonald&#39;s (MCD) decline.",
+    "layer": "News",
+    "ticker": "AMPX",
+    "reason": "\u05d4\u05de\u05dc\u05e6\u05ea \u05d0\u05e0\u05dc\u05d9\u05e1\u05d8 \u05e9\u05dc Jim Cramer \u05e2\u05d1\u05d5\u05e8 Amprius Technologies"
   }
 ]
