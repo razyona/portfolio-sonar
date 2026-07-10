@@ -262,5 +262,17 @@
     "layer": "News",
     "ticker": "AMPX",
     "reason": "\u05d7\u05d1\u05e8\u05ea Jones Trading \u05d4\u05ea\u05d7\u05d9\u05dc\u05d4 \u05dc\u05e2\u05e7\u05d5\u05d1 \u05d0\u05d7\u05e8\u05d9 AMPX \u05d5\u05d4\u05de\u05dc\u05d9\u05e6\u05d4 \u05e2\u05dc \u05e7\u05e0\u05d9\u05d4"
+  },
+  {
+    "id": "17d1a724824d1a",
+    "tid": "t:69adb25b579aaa",
+    "title": "Jones Trading Initiates Coverage of Amprius Technologies (AMPX) with Buy Recommendation",
+    "source": "Fintel",
+    "link": "https://finnhub.io/api/news?id=4761b0d74b00a330315a2a06413013a9ecb49390ec6d9fd046df16c839ba02f0",
+    "published": "2026-07-10T20:36:16+00:00",
+    "summary": "",
+    "layer": "News",
+    "ticker": "AMPX",
+    "reason": "Jones Trading \u05d4\u05ea\u05d7\u05d9\u05dc\u05d4 \u05dc\u05e2\u05e7\u05d5\u05d1 \u05d0\u05d7\u05e8\u05d9 Amprius Technologies \u05e2\u05dd \u05d4\u05de\u05dc\u05e6\u05ea \u05e7\u05e0\u05d9\u05d4"
   }
 ]
