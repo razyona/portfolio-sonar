@@ -274,5 +274,17 @@
     "layer": "News",
     "ticker": "AMPX",
     "reason": "Jones Trading \u05d4\u05ea\u05d7\u05d9\u05dc\u05d4 \u05dc\u05e2\u05e7\u05d5\u05d1 \u05d0\u05d7\u05e8\u05d9 Amprius Technologies \u05e2\u05dd \u05d4\u05de\u05dc\u05e6\u05ea \u05e7\u05e0\u05d9\u05d4"
+  },
+  {
+    "id": "d662308ea6499c",
+    "tid": "t:39360604500ef2",
+    "title": "Jones Trading Initiates Coverage On Amprius Technologies with Buy Rating, Announces Price Target of $30",
+    "source": "Benzinga",
+    "link": "https://finnhub.io/api/news?id=507b0162c24c2734109e0e49925febc2b63136620de37617ed42446470f7b16b",
+    "published": "2026-07-10T10:25:50+00:00",
+    "summary": "Jones Trading  analyst Josh Sullivan   initiates coverage on Amprius Technologies (NYSE:AMPX) with a Buy rating and announces Price Target of $30.",
+    "layer": "News",
+    "ticker": "AMPX",
+    "reason": "\u05d4\u05de\u05dc\u05e6\u05ea \u05d0\u05e0\u05dc\u05d9\u05e1\u05d8 \u05e2\u05dc Amprius Technologies \u05e2\u05dd \u05d3\u05d9\u05e8\u05d5\u05d2 \u05e7\u05e0\u05d9\u05d4 \u05d5\u05de\u05d8\u05e8\u05d4 \u05de\u05d7\u05d9\u05e8 \u05e9\u05dc 30$"
   }
 ]
