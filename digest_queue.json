@@ -22,5 +22,29 @@
     "layer": "News",
     "ticker": "SIVE.ST",
     "reason": "\u05d9\u05e9\u05e0\u05d5 \u05d3\u05d9\u05d5\u05d5\u05d7 \u05e2\u05dc \u05e2\u05dc\u05d9\u05d9\u05d4 \u05d1\u05de\u05e0\u05d9\u05d9\u05ea Sivers Semiconductors \u05d1\u05e2\u05e7\u05d1\u05d5\u05ea \u05d3\u05d9\u05d5\u05d5\u05d7\u05d9\u05dd \u05e2\u05dc \u05d0\u05d9\u05e1\u05d5\u05e8 \u05d9\u05d1\u05d5\u05d0 \u05e7\u05d9\u05e0\u05d9\u05ea"
+  },
+  {
+    "id": "0756382c96dc80",
+    "tid": "t:f45d58f157a5d4",
+    "title": "Amprius Technologies FY2026  Revenue expected to be more than $140.000M vs $132.099M Est",
+    "source": "Benzinga",
+    "link": "https://finnhub.io/api/news?id=032d59f2ded604af0120a1d93407950b87e46016ef152db30aa5ec0e4c3c8a3e",
+    "published": "2026-08-04T16:24:54+00:00",
+    "summary": "Amprius Technologies (NYSE:AMPX)  FY2026  Revenue expected to be more than $140.000M vs $132.099M Est",
+    "layer": "News",
+    "ticker": "AMPX",
+    "reason": "\u05e1\u05d9\u05d5\u05d5\u05d2 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df"
+  },
+  {
+    "id": "68861a73d7c95f",
+    "tid": "t:6beed9ba06a36a",
+    "title": "Amprius Technologies Q2 Adj. EPS $(0.02), Inline, Sales $34.032M Beat $29.300M Estimate",
+    "source": "Benzinga",
+    "link": "https://finnhub.io/api/news?id=028493c3d9ec987b75fe7bc39ed8a27439fd6990295330bc01c97b6a88226dd2",
+    "published": "2026-08-04T16:22:26+00:00",
+    "summary": "Amprius Technologies (NYSE:AMPX) reported quarterly losses of $(0.02) per share which met the analyst consensus estimate. This is a 60 percent increase over losses of $(0.05) per share from the same period last year.",
+    "layer": "News",
+    "ticker": "AMPX",
+    "reason": "\u05e1\u05d9\u05d5\u05d5\u05d2 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df"
   }
 ]
