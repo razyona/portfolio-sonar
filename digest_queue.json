@@ -34,5 +34,41 @@
     "layer": "News",
     "ticker": "AMPX",
     "reason": "\u05e1\u05d9\u05d5\u05d5\u05d2 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df"
+  },
+  {
+    "id": "589173b6a3a390",
+    "tid": "t:7810766eecc51f",
+    "title": "HC Wainwright & Co. Reiterates Buy on Amprius Technologies, Maintains $18 Price Target",
+    "source": "Benzinga",
+    "link": "https://finnhub.io/api/news?id=bd60de137552cd200fd6010e2817e487fa2512a890013ed8f85021228d86052c",
+    "published": "2026-09-29T06:10:36+00:00",
+    "summary": "HC Wainwright &amp; Co.  analyst Amit Dayal   reiterates Amprius Technologies (NYSE:AMPX) with a Buy and maintains $18 price target.",
+    "layer": "News",
+    "ticker": "AMPX",
+    "reason": "\u05e1\u05d9\u05d5\u05d5\u05d2 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df"
+  },
+  {
+    "id": "00a111b1c03539",
+    "tid": "t:1723873d34834b",
+    "title": "Sivers vill inf\u00f6ra optionsprogram f\u00f6r sina anst\u00e4llda - efn.se",
+    "source": "efn.se",
+    "link": "https://news.google.com/rss/articles/CBMidkFVX3lxTE1OTC00ZHl1ZTM2NGNMTk0zVXBvbS1FRmIxMlE5SE1QZFVWMEZteUw3QzJXMlV6eTFjdDB1RzhFOXBMQjh4RXlnai0xRE54MXdlRTFUajBnTGtlaFFVQTYzRjlqd2ZzSUw0aU12SFE0YkZhV0kxRnc?oc=5",
+    "published": "Tue, 29 Sep 2026 17:24:34 GMT",
+    "summary": "Sivers vill inf\u00f6ra optionsprogram f\u00f6r sina anst\u00e4llda&nbsp;&nbsp;efn.se",
+    "layer": "News",
+    "ticker": "SIVE.ST",
+    "reason": "\u05e1\u05d9\u05d5\u05d5\u05d2 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df"
+  },
+  {
+    "id": "d1c9dedec8d12f",
+    "tid": "t:df3468283a4a42",
+    "title": "Sivers f\u00f6resl\u00e5s nytt optionsprogram - DI",
+    "source": "DI",
+    "link": "https://news.google.com/rss/articles/CBMia0FVX3lxTE1ieDQtYUg1MHJnZDhQTDhidGs4Tzhac1NhNW8wa2ZrbzFERGV5VTRVZ0FCRl9obnp4VVQ3dnd6ZmFXVEExVG5wdE44VnlMcEtNMEtXTmw1R2ZVeUthNkZHeS10QjdfS1ZBMk5n?oc=5",
+    "published": "Tue, 29 Sep 2026 18:00:45 GMT",
+    "summary": "Sivers f\u00f6resl\u00e5s nytt optionsprogram&nbsp;&nbsp;DI",
+    "layer": "News",
+    "ticker": "SIVE.ST",
+    "reason": "\u05e1\u05d9\u05d5\u05d5\u05d2 \u05dc\u05d0 \u05d6\u05de\u05d9\u05df"
   }
 ]
